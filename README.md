@@ -1,36 +1,49 @@
-> **New:** the modern, database-backed HRMS (Next.js, TypeScript, PostgreSQL, Docker, CI) lives in [`hrms/`](hrms/README.md). The static prototype below is kept for reference.
+# HRMS — Enterprise Human Resource Management System
 
-# HRMS workspace prototype
-
-A responsive Human Resource Management System inspired by the supplied HRMS reference: dark navy module navigation, a compact global header, blue active states, lightweight KPI cards, charts, and operational tables.
+A responsive, database-backed HR workspace inspired by the supplied reference UI. It includes employee management, organization structure, attendance, leave approvals, payroll previews, recruitment, performance, documents, reporting, audit history and workspace settings.
 
 ## Run locally
 
+The application lives in [`hrms/`](hrms/README.md) and uses Next.js, TypeScript and PostgreSQL.
+
 ```bash
-python3 -m http.server 4173 --bind 0.0.0.0
+cd hrms
+npm ci
+cp .env.example .env.local
+npm run db:local                 # keep this terminal running (embedded PostgreSQL)
 ```
 
-Open `http://localhost:4173` (Arena also exposes the running server as a live preview). There is no build step or external backend.
+In another terminal, from `hrms/`:
 
-## Modules
+```bash
+npm run db:migrate
+npm run db:seed                  # demo data; development only
+npm run dev                      # http://localhost:3000
+```
 
-- **Dashboard:** employee and leave KPIs, attendance trend chart, leave distribution, recent leave requests, and upcoming birthdays.
-- **Employees:** search/filter, add/edit/remove records, pagination, and CSV export.
-- **Organization:** department headcount and team navigation.
-- **Attendance:** daily check-in summary, attendance table, clock-in/out demo, filters, and export.
-- **Leave:** request creation, request tabs/filters, approve/decline actions, and export.
-- **Payroll:** overview, salary structure, payslips, deductions/benefits, and a safe simulated payroll run.
-- **Recruitment (ATS):** job posts, applicants, interviews, offers, and hiring stage progression.
-- **Performance:** goals, reviews, KPIs, feedback, and progress updates.
-- **Documents:** document library, metadata upload, categories, preview, and download.
-- **Reports & Analytics:** downloadable HR reports, employee distribution, and department headcount.
-- **Audit Logs:** searchable module activity history and CSV export.
-- **Settings:** general, security, roles/permissions, and system preferences.
+For Docker, run `docker compose up --build` from `hrms/`; the app applies migrations on startup. See the detailed [setup guide](hrms/README.md).
 
-## Demo data and safety
+## Demo sign-in
 
-- Sample records use Sri Lankan names, departments, and LKR amounts to align with the supplied reference.
-- Changes are stored in browser `localStorage` only. No employee data is sent to a server.
-- Uploaded document metadata is stored locally; this prototype does not upload file contents.
-- Payroll is a visual preview and simulated run only; it does not transfer money or file taxes.
-- Small page, chart, hover, and success animations are included. The UI honors `prefers-reduced-motion`.
+All demo users use `Password123!`:
+
+| Email | Role |
+| --- | --- |
+| `hr@hrms.example` | HR Administrator — full HR workspace |
+| `admin@hrms.example` | Super Admin — full access and role management |
+| `manager@hrms.example` | Manager — scoped team access and approvals |
+| `employee@hrms.example` | Employee — personal HR workflows |
+
+## Data and safety
+
+- Employee, leave, attendance, payroll preview, recruiting, performance, document metadata, settings, notification and audit records are persisted in PostgreSQL through Drizzle ORM.
+- RBAC and employee scope are enforced by server-side APIs, not by hidden buttons alone.
+- Payroll is an illustrative gross-pay preview. It does not calculate statutory/tax deductions, generate a compliant payslip, or move money. Verify local requirements before production use.
+- Document files are stored in the database in this demo and are limited to 2.5 MB per upload.
+- Seed records and local secrets are for development only; do not use demo credentials in production.
+
+## Main modules
+
+Dashboard · Employees · Organization · Attendance · Leave · Payroll · Recruitment · Performance · Documents · Reports · Audit Logs · Settings
+
+See [`hrms/README.md`](hrms/README.md) for architecture, APIs, database details, and tests.

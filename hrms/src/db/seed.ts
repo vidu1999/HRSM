@@ -14,6 +14,16 @@ import {
   leaveRequests,
   leaveTypes,
   users,
+  payrollItems,
+  payrollPeriods,
+  jobPosts,
+  candidates,
+  applications,
+  performanceGoals,
+  performanceReviews,
+  documents,
+  appSettings,
+  notifications,
 } from "./schema";
 
 const DEMO_PASSWORD = "Password123!";
@@ -49,7 +59,7 @@ const LEAVE_TYPES = [
 ];
 
 const EMPLOYEES: Seed[] = [
-  { key: "EMP-1001", first: "Sarah", last: "Fernando", title: "HR Director", dept: "HR", salary: 380000, joined: "2019-03-01", birth: "1984-10-10" },
+  { key: "EMP-1001", first: "Sarah", last: "Johnson", title: "HR Director", dept: "HR", salary: 380000, joined: "2019-03-01", birth: "1984-10-10" },
   { key: "EMP-1002", first: "Ravindu", last: "Jayasinghe", title: "Chief Executive Officer", dept: "EXE", salary: 650000, joined: "2017-01-15", birth: "1979-05-22" },
   { key: "EMP-1003", first: "Dilshan", last: "Fernando", title: "Engineering Manager", dept: "ENG", manager: "EMP-1002", salary: 340000, joined: "2020-06-01", birth: "1988-10-13" },
   { key: "EMP-1004", first: "Kasun", last: "Perera", title: "Senior Software Engineer", dept: "ENG", manager: "EMP-1003", salary: 265000, joined: "2021-02-08", birth: "1992-10-10" },
@@ -77,7 +87,7 @@ async function main() {
   }
 
   console.log("Clearing existing data...");
-  await db.execute(sql`TRUNCATE audit_logs, attendance_records, leave_requests, leave_balances, users, employees, leave_types, departments RESTART IDENTITY CASCADE`);
+  await db.execute(sql`TRUNCATE audit_logs, notifications, documents, performance_reviews, performance_goals, applications, candidates, job_posts, payroll_items, payroll_periods, app_settings, attendance_records, leave_requests, leave_balances, users, employees, leave_types, departments RESTART IDENTITY CASCADE`);
 
   const deptIds = new Map<string, string>();
   for (const d of await db.insert(departments).values(DEPARTMENTS).returning()) deptIds.set(d.code, d.id);
@@ -117,12 +127,13 @@ async function main() {
 
   const passwordHash = await hashPassword(DEMO_PASSWORD);
   const e = (key: string) => employeeIds.get(key)!;
-  await db.insert(users).values([
+  const accounts = await db.insert(users).values([
     { email: "admin@hrms.example", passwordHash, role: "SUPER_ADMIN", employeeId: e("EMP-1002") },
     { email: "hr@hrms.example", passwordHash, role: "HR_ADMIN", employeeId: e("EMP-1001") },
     { email: "manager@hrms.example", passwordHash, role: "MANAGER", employeeId: e("EMP-1003") },
     { email: "employee@hrms.example", passwordHash, role: "EMPLOYEE", employeeId: e("EMP-1004") },
-  ]);
+  ]).returning();
+  const account = (email: string) => accounts.find((user) => user.email === email)!;
 
   // Balances for every employee/type this year, with some usage.
   const balanceRows: (typeof leaveBalances.$inferInsert)[] = [];
@@ -179,12 +190,143 @@ async function main() {
     if (rows.length) await db.insert(attendanceRecords).values(rows);
   }
 
+  const dateOffset = (offset: number) => {
+    const date = new Date(today);
+    date.setUTCDate(date.getUTCDate() + offset);
+    return date.toISOString().slice(0, 10);
+  };
+
+  // Payroll is deliberately a transparent gross-pay preview. Statutory and tax deductions are not inferred.
+  const previousMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
+  const payrollPeriod = `${previousMonth.getUTCFullYear()}-${String(previousMonth.getUTCMonth() + 1).padStart(2, "0")}`;
+  const payrollRows = EMPLOYEES.map((employee, index) => ({
+    employeeId: e(employee.key),
+    baseLkr: employee.salary,
+    allowanceLkr: index % 4 === 0 ? 12000 : 0,
+    overtimeLkr: index % 5 === 0 ? 8500 : 0,
+    deductionsLkr: 0,
+    netLkr: employee.salary + (index % 4 === 0 ? 12000 : 0) + (index % 5 === 0 ? 8500 : 0),
+  }));
+  const grossLkr = payrollRows.reduce((sum, row) => sum + row.baseLkr + row.allowanceLkr + row.overtimeLkr, 0);
+  const [periodRow] = await db.insert(payrollPeriods).values({
+    period: payrollPeriod,
+    status: "PROCESSED",
+    employeeCount: payrollRows.length,
+    grossLkr,
+    deductionsLkr: 0,
+    netLkr: grossLkr,
+    processedAt: new Date(),
+    createdByUserId: account("hr@hrms.example").id,
+  }).returning();
+  await db.insert(payrollItems).values(payrollRows.map((row) => ({ ...row, payrollPeriodId: periodRow.id })));
+
+  const jobSeeds = [
+    { title: "Senior Frontend Developer", department: "ENG", type: "FULL_TIME", location: "Colombo / Hybrid", status: "OPEN", posted: dateOffset(-18) },
+    { title: "Backend Developer", department: "ENG", type: "FULL_TIME", location: "Colombo / Hybrid", status: "OPEN", posted: dateOffset(-14) },
+    { title: "HR Executive", department: "HR", type: "FULL_TIME", location: "Colombo", status: "OPEN", posted: dateOffset(-12) },
+    { title: "Marketing Specialist", department: "SAL", type: "FULL_TIME", location: "Remote · Sri Lanka", status: "OPEN", posted: dateOffset(-9) },
+    { title: "Accountant", department: "FIN", type: "FULL_TIME", location: "Colombo", status: "CLOSED", posted: dateOffset(-27) },
+  ];
+  const jobRows = await db.insert(jobPosts).values(jobSeeds.map((job) => ({
+    title: job.title,
+    departmentId: deptIds.get(job.department)!,
+    employmentType: job.type,
+    location: job.location,
+    status: job.status,
+    postedAt: job.posted,
+    description: `Join our ${job.department} team as a ${job.title}.`,
+    createdByUserId: account("hr@hrms.example").id,
+  }))).returning();
+
+  const candidateSeeds = [
+    ["Nimesha", "Silva", "nimesha.silva@example.com", "LinkedIn"],
+    ["Ayesha", "Perera", "ayesha.perera@example.com", "Referral"],
+    ["Kavindu", "Fernando", "kavindu.fernando@example.com", "Careers page"],
+    ["Tharushi", "Jayawardena", "tharushi.jay@example.com", "LinkedIn"],
+    ["Dilan", "Wickramasinghe", "dilan.w@example.com", "Referral"],
+    ["Mihiri", "Gunasekara", "mihiri.g@example.com", "Careers page"],
+    ["Sachin", "Bandara", "sachin.bandara@example.com", "Job board"],
+  ] as const;
+  const candidateRows = await db.insert(candidates).values(candidateSeeds.map(([firstName, lastName, email, source], index) => ({
+    firstName, lastName, email, source, phone: `+94 77 100 00${String(index + 1).padStart(2, "0")}`,
+  }))).returning();
+  const applicationSeed = [
+    [0, 0, "SCREENING"], [1, 0, "INTERVIEW"], [2, 0, "APPLIED"], [3, 1, "INTERVIEW"],
+    [4, 1, "APPLIED"], [5, 2, "OFFER"], [6, 3, "SCREENING"],
+  ] as const;
+  await db.insert(applications).values(applicationSeed.map(([candidateIndex, jobIndex, stage], index) => ({
+    candidateId: candidateRows[candidateIndex].id,
+    jobPostId: jobRows[jobIndex].id,
+    stage,
+    appliedAt: dateOffset(-20 + index * 2),
+    interviewAt: stage === "INTERVIEW" ? new Date(`${dateOffset(2 + index)}T10:00:00+05:30`) : null,
+  })));
+
+  const goalSeeds = [
+    { employee: "EMP-1003", title: "Ship Q4 platform roadmap", category: "Business impact", progress: 68, dueDate: dateOffset(62) },
+    { employee: "EMP-1004", title: "Deliver customer portal v2", category: "Product delivery", progress: 80, dueDate: dateOffset(35) },
+    { employee: "EMP-1005", title: "Improve API response time by 20%", category: "Engineering excellence", progress: 60, dueDate: dateOffset(45) },
+    { employee: "EMP-1006", title: "Expand automated test coverage", category: "Quality", progress: 92, dueDate: dateOffset(28) },
+    { employee: "EMP-1007", title: "Complete cloud cost review", category: "Operations", progress: 40, dueDate: dateOffset(22) },
+    { employee: "EMP-1008", title: "Launch design system components", category: "Design systems", progress: 100, dueDate: dateOffset(-3) },
+    { employee: "EMP-1017", title: "Refresh employee onboarding journey", category: "People experience", progress: 75, dueDate: dateOffset(50) },
+  ];
+  await db.insert(performanceGoals).values(goalSeeds.map((goal) => ({
+    employeeId: e(goal.employee),
+    title: goal.title,
+    category: goal.category,
+    description: `Quarterly objective: ${goal.title.toLowerCase()}.`,
+    progress: goal.progress,
+    status: goal.progress >= 100 ? "COMPLETED" : goal.progress < 50 ? "AT_RISK" : "ON_TRACK",
+    dueDate: goal.dueDate,
+    createdByUserId: account("manager@hrms.example").id,
+  })));
+  await db.insert(performanceReviews).values([
+    { employeeId: e("EMP-1003"), period: "Q3 2026", rating: 4, status: "COMPLETED", summary: "Strong delivery and cross-team leadership.", createdByUserId: account("hr@hrms.example").id },
+    { employeeId: e("EMP-1004"), period: "Q3 2026", rating: 5, status: "COMPLETED", summary: "Exceeded expectations across product delivery.", createdByUserId: account("manager@hrms.example").id },
+    { employeeId: e("EMP-1005"), period: "Q3 2026", rating: 4, status: "COMPLETED", summary: "Reliable execution and thoughtful collaboration.", createdByUserId: account("manager@hrms.example").id },
+    { employeeId: e("EMP-1006"), period: "Q4 2026", rating: 0, status: "IN_PROGRESS", summary: "Review cycle is currently in progress.", createdByUserId: account("manager@hrms.example").id },
+  ]);
+
+  const documentSeeds = [
+    { title: "Employee Handbook 2026", category: "Company Policy", fileName: "employee-handbook-2026.txt", employeeId: null },
+    { title: "Information Security Policy", category: "Company Policy", fileName: "information-security-policy.txt", employeeId: null },
+    { title: "Employment Agreement — Kasun Perera", category: "Contracts", fileName: "kasun-perera-agreement.txt", employeeId: "EMP-1004" },
+    { title: "Payslip — September 2026", category: "Payroll", fileName: "payslip-september-2026.txt", employeeId: "EMP-1004" },
+    { title: "Engineering Onboarding Checklist", category: "Onboarding", fileName: "engineering-onboarding.txt", employeeId: "EMP-1005" },
+  ];
+  await db.insert(documents).values(documentSeeds.map((document) => ({
+    title: document.title,
+    category: document.category,
+    fileName: document.fileName,
+    mimeType: "text/plain",
+    sizeBytes: Buffer.byteLength(`Demo file for ${document.title}`),
+    employeeId: document.employeeId ? e(document.employeeId) : null,
+    contentBase64: Buffer.from(`HRMS demo document\n\n${document.title}\n\nThis sample document is illustrative and for local demo use only.`).toString("base64"),
+    uploadedByUserId: account("hr@hrms.example").id,
+  })));
+
+  await db.insert(appSettings).values([
+    { key: "company", value: { name: "HRMS Lanka", legalName: "HRMS Lanka (Pvt) Ltd", email: "people@hrms.example", phone: "+94 11 200 0000", currency: "LKR", timeZone: "Asia/Colombo" } },
+    { key: "security", value: { mfaRequired: true, sessionTimeoutMinutes: 60, strongPassword: true, passwordExpiryDays: 90 } },
+    { key: "notifications", value: { emailUpdates: true, leaveAlerts: true, payrollAlerts: true, birthdayReminders: true } },
+  ]);
+
+  const hrUser = account("hr@hrms.example");
+  await db.insert(notifications).values([
+    { userId: hrUser.id, title: "Leave request waiting", message: "Ayesha Perera requested 3 days of annual leave.", href: "/leave", kind: "leave" },
+    { userId: hrUser.id, title: "Payroll preview is ready", message: `The ${payrollPeriod} payroll preview was generated successfully.`, href: "/payroll", kind: "payroll" },
+    { userId: hrUser.id, title: "New candidate applications", message: "There are candidates ready for screening in Recruitment.", href: "/recruitment", kind: "people" },
+  ]);
+  const managerUser = account("manager@hrms.example");
+  await db.insert(notifications).values({ userId: managerUser.id, title: "Team goal update", message: "Your team's quarterly goals have been refreshed.", href: "/performance", kind: "people" });
+
   await db.insert(auditLogs).values({
     actorEmail: "system@hrms.example",
     action: "SEED_LOADED",
     entityType: "system",
     entityId: null,
-    newValue: { employees: EMPLOYEES.length, year: YEAR },
+    newValue: { employees: EMPLOYEES.length, year: YEAR, modules: ["payroll", "recruitment", "performance", "documents"] },
   });
 
   console.log(`Seeded ${EMPLOYEES.length} employees, ${DEPARTMENTS.length} departments, ${LEAVE_TYPES.length} leave types.`);

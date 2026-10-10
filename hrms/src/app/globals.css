@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./reference-ui.css";
+@import "./enterprise.css";
 
 @theme {
   --color-brand-50: #eff6ff;
@@ -11,8 +13,9 @@
 
 html,
 body {
-  background: #f4f6fb;
-  color: #0f172a;
+  min-height: 100%;
+  background: #f4f6fa;
+  color: #1d293b;
   font-feature-settings: "cv11", "ss01";
 }
 
@@ -21,6 +24,8 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

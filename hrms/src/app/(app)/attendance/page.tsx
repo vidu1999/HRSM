@@ -1,79 +1,71 @@
-import { Avatar, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Metric, PageHeading, SearchField, Panel, Avatar, StatusPill } from "@/components/presentation";
 import { AttendanceClock } from "@/components/attendance-clock";
-import { formatDate, formatTime, initials } from "@/lib/format";
+import { Icon } from "@/components/icon";
+import { formatDate, formatTime } from "@/lib/format";
 import { requireSession } from "@/lib/session";
 import { getTodayStatus, listAttendance } from "@/lib/services/attendance";
-import { hasOrgScope } from "@/lib/rbac";
+import { listEmployees } from "@/lib/services/employees";
 import { isoDateAddDays, todayInAppZone } from "@/lib/workdays";
+import { hasOrgScope } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
+type SearchParams = { from?: string; to?: string; search?: string };
+function safeDate(value: string | undefined, fallback: string) { return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback; }
+function fmtMinutes(minutes: number | null) { return minutes == null ? "—" : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`; }
 
-function fmtMinutes(m: number | null) {
-  if (m == null) return "—";
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
-}
-
-export default async function AttendancePage() {
+export default async function AttendancePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const session = await requireSession();
+  const params = await searchParams;
   const today = todayInAppZone();
-  const from = isoDateAddDays(today, -6);
-  const [status, rows] = await Promise.all([getTodayStatus(session), listAttendance(session, from, today, 200)]);
+  let from = safeDate(params.from, isoDateAddDays(today, -6));
+  let to = safeDate(params.to, today);
+  if (from > to) { from = isoDateAddDays(today, -6); to = today; }
+  const [status, allRows, employees] = await Promise.all([
+    getTodayStatus(session), listAttendance(session, from, to, 500), listEmployees(session, { page: 1, pageSize: 100 }),
+  ]);
+  const search = params.search?.trim().toLowerCase() ?? "";
+  const rows = allRows.filter((row) => !search || `${row.employeeName} ${row.employeeNumber}`.toLowerCase().includes(search));
+  const todayRows = allRows.filter((row) => row.workDate === today && row.checkIn);
+  const present = todayRows.length;
+  const late = todayRows.filter((row) => {
+    const time = formatTime(row.checkIn);
+    const [hour, minute] = time.split(":").map(Number);
+    return hour > 9 || (hour === 9 && minute > 0);
+  }).length;
+  const worked = allRows.filter((row) => row.workedMinutes != null).reduce((sum, row) => sum + (row.workedMinutes ?? 0), 0);
+  const exportHref = `/api/reports?type=attendance`;
 
-  return (
-    <>
-      <PageHeader
-        title="Attendance"
-        description={`${hasOrgScope(session) ? "Organisation-wide" : "Your team"} records from ${formatDate(from)} to ${formatDate(today)} (Asia/Colombo)`}
-      />
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <Card title="Today" subtitle={formatDate(status.workDate)} className="xl:col-span-1">
-          {session.employeeId ? (
-            <AttendanceClock checkIn={status.checkIn?.toISOString() ?? null} checkOut={status.checkOut?.toISOString() ?? null} />
-          ) : (
-            <EmptyState>Your account is not linked to an employee record.</EmptyState>
-          )}
-        </Card>
-
-        <Card className="xl:col-span-2" title="Recent records" subtitle="Check-ins and check-outs, newest first">
-          {rows.length === 0 ? (
-            <EmptyState>No attendance recorded in this period.</EmptyState>
-          ) : (
-            <div className="max-h-[32rem] overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-white text-left text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="py-2 pr-4">Date</th>
-                    <th className="py-2 pr-4">Employee</th>
-                    <th className="py-2 pr-4">In</th>
-                    <th className="py-2 pr-4">Out</th>
-                    <th className="py-2 text-right">Worked</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {rows.map((r) => {
-                    const [first = "", last = ""] = r.employeeName.split(" ");
-                    return (
-                      <tr key={r.id} className="transition hover:bg-slate-50">
-                        <td className="py-2.5 pr-4 whitespace-nowrap text-slate-600">{formatDate(r.workDate)}</td>
-                        <td className="py-2.5 pr-4">
-                          <div className="flex items-center gap-2">
-                            <Avatar text={initials(first, last)} />
-                            <span className="text-slate-800">{r.employeeName}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 pr-4 tabular-nums text-slate-700">{formatTime(r.checkIn)}</td>
-                        <td className="py-2.5 pr-4 tabular-nums text-slate-700">{formatTime(r.checkOut)}</td>
-                        <td className="py-2.5 text-right tabular-nums text-slate-700">{fmtMinutes(r.workedMinutes)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </div>
-    </>
-  );
+  return <>
+    <PageHeading title="Attendance" description={`${hasOrgScope(session) ? "Organization-wide" : "Your team"} attendance in the Asia/Colombo time zone.`} action={<a className="button-secondary" href={exportHref}><Icon name="download" size={13} /> Export report</a>} />
+    <div className="attendance-summary">
+      <Metric label="Present today" value={present} icon="check" tone="green" note="Checked in today" />
+      <Metric label="Absent today" value={Math.max(0, employees.total - present)} icon="people" tone="blue" note="No check-in recorded" />
+      <Metric label="Late arrivals" value={late} icon="clock" tone="orange" note="After 9:00 AM local time" />
+      <Metric label="Hours recorded" value={`${Math.floor(worked / 60)}h`} icon="attendance" tone="violet" note="Selected date range" />
+    </div>
+    <div className="attendance-page-grid">
+      <Panel title="Your attendance" subtitle={`Today · ${formatDate(status.workDate)}`} className="attendance-self-panel">
+        {session.employeeId ? <AttendanceClock checkIn={status.checkIn?.toISOString() ?? null} checkOut={status.checkOut?.toISOString() ?? null} /> : <div className="module-empty">Your account is not linked to an employee profile.</div>}
+      </Panel>
+      <Panel title="Attendance records" subtitle={`${formatDate(from)} – ${formatDate(to)} · ${rows.length} record${rows.length === 1 ? "" : "s"}`} className="table-panel attendance-records-panel">
+        <form method="get" className="table-search-row">
+          <SearchField name="search" placeholder="Search employee..." defaultValue={params.search ?? ""} />
+          <label className="date-range-button"><Icon name="calendar" size={12} /><input aria-label="From date" name="from" type="date" defaultValue={from} /></label>
+          <span className="date-range-separator">to</span>
+          <label className="date-range-button"><Icon name="calendar" size={12} /><input aria-label="To date" name="to" type="date" defaultValue={to} /></label>
+          <button className="button-secondary" type="submit">Apply</button>
+          <span className="toolbar-spacer" /><span className="toolbar-caption">{allRows.length} database rows</span>
+        </form>
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Employee</th><th>Check-in</th><th>Check-out</th><th>Worked</th><th>Status</th></tr></thead><tbody>
+          {rows.length === 0 ? <tr><td className="empty-cell" colSpan={6}>No attendance records match this date range.</td></tr> : rows.map((row, index) => {
+            const time = formatTime(row.checkIn);
+            const [hour, minute] = time.split(":").map(Number);
+            const isLate = hour > 9 || (hour === 9 && minute > 0);
+            const statusLabel = !row.checkIn ? "ABSENT" : isLate ? "LATE" : row.workedMinutes != null && row.workedMinutes < 240 ? "HALF_DAY" : "PRESENT";
+            return <tr key={row.id}><td className="nowrap">{formatDate(row.workDate)}</td><td><span className="table-person"><Avatar name={row.employeeName} index={index} /><span className="person-cell-copy"><strong>{row.employeeName}</strong><small>{row.employeeNumber}</small></span></span></td><td className="amount">{formatTime(row.checkIn)}</td><td className="amount">{formatTime(row.checkOut)}</td><td className="amount">{fmtMinutes(row.workedMinutes)}</td><td><StatusPill status={statusLabel} /></td></tr>;
+          })}
+        </tbody></table></div>
+      </Panel>
+    </div>
+  </>;
 }
