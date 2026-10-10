@@ -1,3 +1,5 @@
+> **New:** the modern, database-backed HRMS (Next.js, TypeScript, PostgreSQL, Docker, CI) lives in [`hrms/`](hrms/README.md). The static prototype below is kept for reference.
+
 # HRMS workspace prototype
 
 A responsive Human Resource Management System inspired by the supplied HRMS reference: dark navy module navigation, a compact global header, blue active states, lightweight KPI cards, charts, and operational tables.
