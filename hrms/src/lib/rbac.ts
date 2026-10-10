@@ -20,6 +20,17 @@ export const PERMISSIONS = {
   "attendance:write-self": ["SUPER_ADMIN", "HR_ADMIN", "MANAGER", "EMPLOYEE"],
   "audit:read": ["SUPER_ADMIN", "HR_ADMIN"],
   "departments:write": ["SUPER_ADMIN", "HR_ADMIN"],
+  "payroll:read": ["SUPER_ADMIN", "HR_ADMIN"],
+  "payroll:write": ["SUPER_ADMIN", "HR_ADMIN"],
+  "recruitment:read": ["SUPER_ADMIN", "HR_ADMIN", "MANAGER"],
+  "recruitment:write": ["SUPER_ADMIN", "HR_ADMIN"],
+  "performance:read": ["SUPER_ADMIN", "HR_ADMIN", "MANAGER", "EMPLOYEE"],
+  "performance:write": ["SUPER_ADMIN", "HR_ADMIN", "MANAGER"],
+  "documents:read": ["SUPER_ADMIN", "HR_ADMIN", "MANAGER", "EMPLOYEE"],
+  "documents:write": ["SUPER_ADMIN", "HR_ADMIN"],
+  "reports:read": ["SUPER_ADMIN", "HR_ADMIN", "MANAGER"],
+  "settings:read": ["SUPER_ADMIN", "HR_ADMIN"],
+  "settings:write": ["SUPER_ADMIN", "HR_ADMIN"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

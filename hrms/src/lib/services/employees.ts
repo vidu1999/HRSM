@@ -216,9 +216,11 @@ export async function listDepartments() {
       id: departments.id,
       name: departments.name,
       code: departments.code,
-      headcount: sql<number>`(select count(*)::int from ${employees} e where e.department_id = ${departments.id} and e.status <> 'TERMINATED')`,
+      headcount: sql<number>`count(${employees.id})::int`,
     })
     .from(departments)
+    .leftJoin(employees, and(eq(employees.departmentId, departments.id), ne(employees.status, "TERMINATED")))
+    .groupBy(departments.id, departments.name, departments.code)
     .orderBy(asc(departments.name));
 }
 

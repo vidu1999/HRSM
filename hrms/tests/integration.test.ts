@@ -3,11 +3,12 @@
  * Each run creates isolated records with a unique suffix, so it's safe to run against the dev seed.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
-import { db, pool, attendanceRecords, auditLogs, departments, employees, leaveBalances, leaveRequests, leaveTypes, users } from "@/db";
+import { eq, inArray, like } from "drizzle-orm";
+import { db, pool, attendanceRecords, auditLogs, departments, employees, leaveBalances, leaveRequests, leaveTypes, notifications, users } from "@/db";
 import { HttpError } from "@/lib/errors";
 import { decideLeaveRequest, cancelLeaveRequest, createLeaveRequest, getBalances } from "@/lib/services/leave";
 import { checkIn, checkOut } from "@/lib/services/attendance";
+import { todayInAppZone } from "@/lib/workdays";
 import type { Session } from "@/lib/session";
 
 const CLIENT = { ipAddress: "127.0.0.1", userAgent: "vitest" };
@@ -78,6 +79,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const empIds = Object.values(ids);
+  // Leave submission notifications go to seeded HR/admin users, so remove only test messages by their unique surname suffix.
+  await db.delete(notifications).where(like(notifications.message, `% ${suffix} requested %`));
   await db.delete(auditLogs).where(inArray(auditLogs.actorEmail, Object.values(sessionEmails())));
   await db.delete(leaveRequests).where(inArray(leaveRequests.employeeId, empIds));
   await db.delete(leaveBalances).where(inArray(leaveBalances.employeeId, empIds));
@@ -201,7 +204,8 @@ describe("leave workflow", () => {
 
 describe("attendance", () => {
   it("allows one check-in and one check-out per day", async () => {
-    const now = new Date();
+    // Keep check-in and checkout within one Asia/Colombo work date, even when the test runs late in the evening.
+    const now = new Date(`${todayInAppZone()}T08:30:00+05:30`);
     await checkIn(sessionFor("member"), CLIENT, now);
     await expectHttp(checkIn(sessionFor("member"), CLIENT, now), 409);
     await checkOut(sessionFor("member"), CLIENT, new Date(now.getTime() + 8 * 3600_000));

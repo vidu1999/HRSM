@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
-import { db, employees, leaveBalances, leaveRequests, leaveTypes, type LeaveStatus } from "@/db";
+import { db, employees, leaveBalances, leaveRequests, leaveTypes, notifications, users, type LeaveStatus } from "@/db";
 import type { DbTx } from "@/db/types";
 import { recordAudit } from "../audit";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
@@ -172,6 +172,10 @@ export async function createLeaveRequest(session: Session, client: ClientInfo, i
       entityId: created.id,
       newValue: { employeeId, leaveType: type.code, startDate: input.startDate, endDate: input.endDate, days },
     });
+    const adminRecipients = await tx.select({ id: users.id }).from(users).where(and(eq(users.isActive, true), inArray(users.role, ["SUPER_ADMIN", "HR_ADMIN"])));
+    const managerRecipient = employee.managerId ? await tx.select({ id: users.id }).from(users).where(and(eq(users.isActive, true), eq(users.employeeId, employee.managerId))).limit(1) : [];
+    const recipients = Array.from(new Set([...adminRecipients.map((item) => item.id), ...managerRecipient.map((item) => item.id)]));
+    if (recipients.length) await tx.insert(notifications).values(recipients.map((userId) => ({ userId, title: "Leave request submitted", message: `${employee.firstName} ${employee.lastName} requested ${days} day${days === 1 ? "" : "s"} of ${type.name}.`, href: "/leave?status=PENDING", kind: "leave" })));
     return created;
   });
 }
@@ -239,6 +243,8 @@ export async function decideLeaveRequest(
       oldValue: { status: current.status },
       newValue: { status: nextStatus, note: note ?? null },
     });
+    const [owner] = await tx.select({ id: users.id }).from(users).where(and(eq(users.employeeId, current.employeeId), eq(users.isActive, true))).limit(1);
+    if (owner) await tx.insert(notifications).values({ userId: owner.id, title: `Leave request ${decision === "APPROVE" ? "approved" : "rejected"}`, message: `Your request for ${current.days} working day${current.days === 1 ? "" : "s"} has been ${decision === "APPROVE" ? "approved" : "rejected"}.`, href: "/leave", kind: "leave" });
     return updated;
   });
 }

@@ -1,6 +1,7 @@
-import { Card, EmptyState, PageHeader, inputClass } from "@/components/ui";
-import { formatDate, formatTime } from "@/lib/format";
 import { redirect } from "next/navigation";
+import { Icon } from "@/components/icon";
+import { Avatar, PageHeading, SearchField } from "@/components/presentation";
+import { formatDate, formatTime } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { requireSession } from "@/lib/session";
 import { listAuditLogs } from "@/lib/services/audit";
@@ -8,71 +9,40 @@ import { auditQuerySchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
+function actionTone(action: string) {
+  if (/CREATE|APPROVE|GENERATED|UPLOADED/i.test(action)) return "create";
+  if (/DELETE|REJECT|DECLINE|CANCEL/i.test(action)) return "delete";
+  if (/UPDATE|CHANGE|DECISION/i.test(action)) return "update";
+  if (/LOGIN|LOGOUT/i.test(action)) return "login";
+  return "";
+}
+
 export default async function AuditPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const session = await requireSession();
   if (!can(session, "audit:read")) redirect("/");
-  const sp = await searchParams;
-  const q = auditQuerySchema.parse(Object.fromEntries(Object.entries(sp).filter(([, v]) => v)));
-  const rows = await listAuditLogs({ ...q, limit: 100, offset: 0 });
+  const params = await searchParams;
+  const query = auditQuerySchema.parse(Object.fromEntries(Object.entries(params).filter(([, value]) => value)));
+  const rows = await listAuditLogs({ ...query, limit: 100, offset: 0 });
+  const entityTypes = ["employee", "leave_request", "attendance", "department", "job_post", "application", "performance_goal", "document", "payroll_period", "setting", "user", "system"];
 
-  return (
-    <>
-      <PageHeader title="Audit logs" description="Append-only record of security and HR-relevant changes." />
-      <Card>
-        <form className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3" method="get">
-          <select name="entityType" defaultValue={q.entityType ?? ""} className={inputClass}>
-            <option value="">All entities</option>
-            <option value="employee">Employee</option>
-            <option value="leave_request">Leave request</option>
-            <option value="attendance">Attendance</option>
-            <option value="department">Department</option>
-            <option value="user">User / login</option>
-            <option value="system">System</option>
-          </select>
-          <input name="action" defaultValue={q.action} placeholder="Action, e.g. LEAVE_APPROVED" className={inputClass} />
-          <button className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Apply filters</button>
-        </form>
-
-        {rows.length === 0 ? (
-          <EmptyState>No audit entries match these filters.</EmptyState>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="py-2 pr-4">When</th>
-                  <th className="py-2 pr-4">Actor</th>
-                  <th className="py-2 pr-4">Action</th>
-                  <th className="py-2 pr-4">Entity</th>
-                  <th className="py-2 pr-4">Change</th>
-                  <th className="py-2">IP</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 align-top">
-                {rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 pr-4 whitespace-nowrap text-slate-600">
-                      {formatDate(r.createdAt)} <span className="text-slate-400">{formatTime(r.createdAt)}</span>
-                    </td>
-                    <td className="py-2.5 pr-4 text-slate-700">{r.actorEmail ?? "system"}</td>
-                    <td className="py-2.5 pr-4"><code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{r.action}</code></td>
-                    <td className="py-2.5 pr-4 text-slate-600">
-                      {r.entityType}
-                      {r.entityId && <div className="font-mono text-[11px] text-slate-400">{r.entityId.slice(0, 8)}…</div>}
-                    </td>
-                    <td className="max-w-md py-2.5 pr-4">
-                      <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-slate-50 p-2 text-[11px] text-slate-600">
-                        {JSON.stringify({ old: r.oldValue, new: r.newValue }, null, 0)}
-                      </pre>
-                    </td>
-                    <td className="py-2.5 text-xs text-slate-500">{r.ipAddress ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-    </>
-  );
+  return <>
+    <PageHeading title="Audit logs" description="Append-only history of security events and HR-relevant changes." action={<a className="button-secondary" href="/api/reports?type=audit"><Icon name="download" size={13} /> Export logs</a>} />
+    <form className="filter-toolbar" method="get">
+      <SearchField name="action" placeholder="Search action, e.g. EMPLOYEE_CREATED" defaultValue={query.action ?? ""} />
+      <select className="filter-select" name="entityType" defaultValue={query.entityType ?? ""} aria-label="Filter by entity"><option value="">All entities</option>{entityTypes.map((type) => <option key={type} value={type}>{type.replaceAll("_", " ")}</option>)}</select>
+      <button className="button-secondary" type="submit"><Icon name="filter" size={13} /> Apply filters</button><span className="toolbar-spacer" /><span className="toolbar-caption">{rows.length} entries · newest first</span>
+    </form>
+    <section className="panel table-panel">
+      <header className="panel-header"><div><h2>Activity history</h2><p>Who changed what, and when · timestamps are shown in Asia/Colombo.</p></div><span className="status-badge info">Immutable trail</span></header>
+      {!rows.length ? <div className="module-empty"><span><Icon name="audit" /></span><p>No audit entries match these filters.</p></div> : <div className="table-wrap"><table className="data-table audit-table"><thead><tr><th>Date & time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Change details</th><th>IP address</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id}>
+        <td className="nowrap">{formatDate(row.createdAt)}<small className="sub-cell">{formatTime(row.createdAt)}</small></td>
+        <td><span className="table-person"><Avatar name={row.actorEmail ?? "System"} index={index} /><span className="person-cell-copy"><strong>{row.actorEmail?.split("@")[0] ?? "system"}</strong><small>{row.actorEmail ?? "Automated event"}</small></span></span></td>
+        <td><span className={`audit-action ${actionTone(row.action)}`}>{row.action.replaceAll("_", " ")}</span></td>
+        <td><span className="audit-entity">{row.entityType.replaceAll("_", " ")}</span>{row.entityId && <small className="sub-cell">{row.entityId.slice(0, 8)}…</small>}</td>
+        <td><details className="audit-details"><summary>{row.oldValue || row.newValue ? "View change" : "No payload"}</summary><pre>{JSON.stringify({ before: row.oldValue, after: row.newValue }, null, 2)}</pre></details></td>
+        <td className="muted-cell">{row.ipAddress ?? "—"}</td>
+      </tr>)}</tbody></table></div>}
+      <footer className="policy-footer"><span>Audit records are written transactionally alongside data changes.</span><span>Rows are read-only and cannot be edited.</span></footer>
+    </section>
+  </>;
 }

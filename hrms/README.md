@@ -1,29 +1,27 @@
 # HRMS — Enterprise Human Resource Management System
 
-A modern, database-backed HR platform: employee records, departments and reporting lines, a leave workflow with balances and approvals, attendance, role-based access control, an audit trail and an executive dashboard.
+A modern, responsive HR platform inspired by the supplied HRMS dashboard reference. The UI is built with Next.js App Router and React Server Components; business data is read and written through server-side APIs backed by PostgreSQL.
 
-**Stack:** Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · Drizzle ORM · PostgreSQL 16 · Zod · JWT (jose) · bcrypt · Vitest · Docker · GitHub Actions
-
-See [`docs/architecture.md`](docs/architecture.md) for the design and [`docs/adr-001-stack.md`](docs/adr-001-stack.md) for why this stack was chosen.
+**Stack:** Next.js 15 · React 19 · TypeScript · Tailwind CSS 4 · Drizzle ORM · PostgreSQL · Zod · JWT (`jose`) · bcrypt · Vitest · Docker
 
 ## Quick start (Docker)
 
 ```bash
-cp .env.example .env            # optional: set AUTH_SECRET
-docker compose up --build       # starts PostgreSQL + the app on http://localhost:3000
-docker compose exec app node_modules/.bin/tsx src/db/seed.ts   # load demo data (dev only)
+cp .env.example .env            # set a private AUTH_SECRET for real deployments
+docker compose up --build       # PostgreSQL + app on http://localhost:3000
+docker compose exec app node_modules/.bin/tsx src/db/seed.ts  # demo data, development only
 ```
 
-The app container runs migrations automatically on start (`docker-entrypoint.sh`).
+The app container applies migrations automatically on startup.
 
 ## Quick start (local, no Docker)
 
 ```bash
-npm install
-npm run db:local                # embedded PostgreSQL on localhost:5432 (keep this running)
-cp .env.example .env.local      # or export DATABASE_URL / AUTH_SECRET
+npm ci
+npm run db:local                # keep running; embedded PostgreSQL listens on localhost:5432
+cp .env.example .env.local      # or export DATABASE_URL and AUTH_SECRET
 npm run db:migrate
-npm run db:seed
+npm run db:seed                 # development only
 npm run dev                     # http://localhost:3000
 ```
 
@@ -31,102 +29,97 @@ Environment variables:
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `DATABASE_URL` | yes at runtime | `postgres://user:pass@host:5432/db` |
-| `AUTH_SECRET` | yes at runtime | ≥ 32 characters; signs session tokens |
+| `DATABASE_URL` | yes at runtime | PostgreSQL connection string |
+| `AUTH_SECRET` | yes at runtime | At least 32 characters; signs session tokens |
 
 ## Demo accounts
 
 Password for all accounts: `Password123!`
 
-| Email | Role | What they can do |
+| Email | Role | Access |
 | --- | --- | --- |
-| `admin@hrms.example` | Super Admin | Everything, including audit logs and salaries |
-| `hr@hrms.example` | HR Admin | All employees and salaries, create/deactivate staff, decide any leave |
-| `manager@hrms.example` | Manager (Engineering) | Their team (direct and indirect reports), approve team leave |
-| `employee@hrms.example` | Employee | Own profile, own leave, own attendance |
+| `admin@hrms.example` | Super Admin | All modules, role assignments, audit logs |
+| `hr@hrms.example` | HR Admin | Organization-wide HR and payroll workflows |
+| `manager@hrms.example` | Manager (Engineering) | Scoped team data, leave decisions, performance |
+| `employee@hrms.example` | Employee | Personal attendance, leave, documents and performance |
 
-## Permission model
+## Modules
+
+- **Dashboard:** live PostgreSQL KPIs, attendance trend, leave distribution, recent requests, birthdays and personal clock-in/out.
+- **Employees:** searchable, filterable directory; pagination; employee creation and status management; CSV export.
+- **Organization:** department headcounts, reporting directory, department creation and links into the filtered employee directory.
+- **Attendance:** clock-in/out in Asia/Colombo time, date/search filters, summaries and CSV export.
+- **Leave:** balances, working-day calculations, request submission, approval/rejection/cancellation, notifications and audit events.
+- **Payroll:** salary structure, payroll periods, gross-pay previews, downloadable CSV payslips and export.
+- **Recruitment:** job posts, candidate applications and a persisted application-stage pipeline.
+- **Performance:** scoped goals, progress updates, review cycles, KPI summaries and feedback.
+- **Documents:** searchable company and employee files; uploads are stored with metadata/content in PostgreSQL and can be downloaded or removed by authorized HR users.
+- **Reports & Analytics:** department headcount, workforce metrics and database-generated CSV reports.
+- **Audit Logs:** searchable, append-only HR/security history and CSV export.
+- **Settings:** company preferences, security policy, notification preferences, system status, role definitions and access assignment.
+
+Navigation search (⌘/Ctrl+K), notifications, profile/sign-out, filters, modals, downloads, responsive navigation, and module actions are interactive. Page and chart transitions honor `prefers-reduced-motion`.
+
+## Database and permissions
+
+Drizzle schema and migrations live in `src/db/schema.ts` and `drizzle/`. The original core schema holds users, departments, employees, leave, attendance and audit records. The enterprise-module migration adds payroll, recruiting, performance, documents, application settings and notifications.
 
 | Permission | Super Admin | HR Admin | Manager | Employee |
 | --- | :-: | :-: | :-: | :-: |
 | View employees | all | all | own team | self |
-| View salaries | ✓ | ✓ | – | – |
+| View payroll / salaries | ✓ | ✓ | – | own access only via scoped endpoint |
 | Create / update employees | ✓ | ✓ | – | – |
-| Create leave | all | all | team | self |
-| Approve / reject leave | ✓ | ✓ | team (not self) | – |
-| Cancel leave | ✓ | ✓ | – | own pending |
+| Create / decide leave | ✓ | ✓ | team | self request |
 | Check in / out | ✓ | ✓ | ✓ | ✓ |
+| Manage jobs | ✓ | ✓ | – | – |
+| Read/write performance goals | all | all | team | self read |
+| Manage documents/settings | ✓ | ✓ | – | – |
+| Change roles | ✓ | – | – | – |
 | View audit logs | ✓ | ✓ | – | – |
 
-Scope is enforced on the server (`src/lib/rbac.ts`). Hiding a button in the UI is never the only protection.
+The backend is authoritative for access control. Salary columns are withheld from non-HR employee responses and reports. Manager/employee records are scoped to their reporting tree or own profile.
 
 ## Key workflows
 
-* **Leave:** submit → the request reserves working days (weekends excluded) and must fit the remaining balance → a manager or HR approves (`SELECT … FOR UPDATE` on the balance) → balance is debited and the decision is audited. Overlapping requests and self-approval are rejected.
-* **Attendance:** one check-in and one check-out per calendar day, in Asia/Colombo time.
-* **Audit:** every write, login, and decision writes an append-only `audit_logs` row in the same transaction, with IP and user agent.
+- **Leave:** submit → reserve working days → manager/HR decision → update balance → notify employee → audit. Overlapping requests, self-approval and out-of-scope actions are rejected.
+- **Attendance:** one check-in and one check-out per local calendar day, with Asia/Colombo date boundaries.
+- **Recruitment:** job post → application → screening → interview → offer → hire/decline. Stage changes are persisted and audited.
+- **Payroll:** create a period → snapshot active base salaries and sample components → save employee lines and totals → audit. This is deliberately a **gross-pay preview**, not a statutory calculation or payment instruction.
+- **Documents:** authorized HR users upload a file (max 2.5 MB); content and metadata are stored in PostgreSQL; downloads are scoped and authenticated.
+- **Notifications:** read state persists per user. Workflow decisions create in-app alerts.
 
-## API
-
-All endpoints return JSON. Errors use `{ "error": string, "details": any }` with standard HTTP status codes.
+## API overview
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/api/auth/login` | Sign in (sets `hrms_session` cookie) |
-| POST | `/api/auth/logout` | Sign out |
-| GET | `/api/auth/me` | Current user |
-| GET / POST | `/api/employees` | List (paged, filterable, scoped) / create |
-| GET / PATCH | `/api/employees/{id}` | Read / update |
-| GET / POST | `/api/departments` | List with headcount / create |
-| GET / POST | `/api/leave` | List (scoped) / submit request |
-| GET | `/api/leave/balances?year=` | Balances for self (or an in-scope employee) |
-| POST | `/api/leave/{id}/decision` | `{ "decision": "APPROVE" \| "REJECT", "note"? }` |
-| POST | `/api/leave/{id}/cancel` | Cancel |
-| GET / POST | `/api/attendance` | Range of records + today's status / `{ "action": "CHECK_IN" \| "CHECK_OUT" }` |
-| GET | `/api/dashboard` | KPIs, trends, birthdays, recent leave |
-| GET | `/api/audit` | Audit log (admins only) |
+| POST | `/api/auth/login` | Sign in and set the secure session cookie |
+| GET / POST | `/api/employees` | Search/list or create employee records |
+| GET / POST | `/api/departments` | List or create departments |
+| GET / POST | `/api/leave` | List or submit requests |
+| POST | `/api/leave/{id}/decision` | Approve or reject a request |
+| GET / POST | `/api/attendance` | Read records or check in/out |
+| GET / POST | `/api/payroll` | Read payroll summary or generate a safe preview |
+| GET / POST / PATCH | `/api/recruitment` | Read hiring data, create jobs/applications, advance stages |
+| GET / POST / PATCH | `/api/performance` | Read goals/reviews, create goals, update progress |
+| GET / POST | `/api/documents` | List or upload database-backed documents |
+| GET | `/api/reports?type=employees\|attendance\|leave\|payroll\|audit` | Download scoped CSV exports |
+| GET / PATCH | `/api/settings` | Read or update workspace preferences |
+| GET / PATCH | `/api/notifications` | Read or mark notifications as read |
+| GET | `/api/search?q=...` | Search in-scope employees and accessible modules |
 
-## Testing
+## Tests and quality checks
 
 ```bash
 npm run typecheck
-npm test                # unit tests + integration tests against the real database
+npm test                    # unit + PostgreSQL integration tests
 npm run build
 ```
 
-* `tests/unit.test.ts`: RBAC matrix, working-day maths, birthdays, password and token handling, input validation.
-* `tests/integration.test.ts`: leave workflow end to end (balances, overlap, self-approval, scope, concurrency), attendance rules, and audit entries. Requires a migrated and seeded database.
+Integration tests require a migrated PostgreSQL database. The local database helper supports running them without Docker.
 
-CI (`.github/workflows/hrms-ci.yml`) runs the same steps against a PostgreSQL service container.
+## Important production notes
 
-## Project layout
-
-```
-hrms/
-├── src/
-│   ├── app/            # pages (App Router) and /api route handlers
-│   ├── components/     # UI primitives and client-side forms/actions
-│   ├── db/             # Drizzle schema, connection, migrate, seed
-│   ├── lib/
-│   │   ├── services/   # business logic: leave, attendance, employees, dashboard, audit
-│   │   ├── rbac.ts     # permissions and scope
-│   │   ├── session.ts  # cookie-backed session (server)
-│   │   └── token.ts    # JWT helpers (edge-safe)
-│   └── middleware.ts   # edge auth gate
-├── drizzle/            # generated SQL migrations
-├── tests/              # Vitest suites
-├── scripts/            # local PostgreSQL helper for development
-├── Dockerfile · docker-compose.yml · docker-entrypoint.sh
-└── docs/               # architecture and ADRs
-```
-
-## Roadmap
-
-Built: auth + RBAC, employees and departments, leave workflow with balances, attendance, dashboard, audit logs, Docker and CI.
-
-Next: payroll (configurable components, payslips, approval and locking), recruitment (ATS pipeline), performance reviews, document storage, notifications via a queue, Redis caching and rate limiting, a public holiday calendar, and multi-tenancy.
-
-## Notes
-
-* The demo data (names, LKR salaries, leave allowances) is illustrative. Leave allowances and any payroll statutory rules must be confirmed against current Sri Lankan requirements before production use.
-* The original static prototype remains in the repository root for reference.
+- Seed data is illustrative, not real employee data. `db:seed` refuses to run in production unless `SEED_FORCE=1` is explicitly set.
+- Payroll values and example balances are for demonstration only. Confirm applicable Sri Lankan statutory and tax rules with authoritative sources before production use.
+- Configure a private `AUTH_SECRET`, HTTPS, database backups, rate limiting, and external object storage before handling real employee documents.
+- Do not commit `.env` / `.env.local` or uploaded files.
