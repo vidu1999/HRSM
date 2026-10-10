@@ -1,70 +1,36 @@
-# Getting Started with Create React App
+> **New:** the modern, database-backed HRMS (Next.js, TypeScript, PostgreSQL, Docker, CI) lives in [`hrms/`](hrms/README.md). The static prototype below is kept for reference.
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+# HRMS workspace prototype
 
-## Available Scripts
+A responsive Human Resource Management System inspired by the supplied HRMS reference: dark navy module navigation, a compact global header, blue active states, lightweight KPI cards, charts, and operational tables.
 
-In the project directory, you can run:
+## Run locally
 
-### `npm start`
+```bash
+python3 -m http.server 4173 --bind 0.0.0.0
+```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Open `http://localhost:4173` (Arena also exposes the running server as a live preview). There is no build step or external backend.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Modules
 
-### `npm test`
+- **Dashboard:** employee and leave KPIs, attendance trend chart, leave distribution, recent leave requests, and upcoming birthdays.
+- **Employees:** search/filter, add/edit/remove records, pagination, and CSV export.
+- **Organization:** department headcount and team navigation.
+- **Attendance:** daily check-in summary, attendance table, clock-in/out demo, filters, and export.
+- **Leave:** request creation, request tabs/filters, approve/decline actions, and export.
+- **Payroll:** overview, salary structure, payslips, deductions/benefits, and a safe simulated payroll run.
+- **Recruitment (ATS):** job posts, applicants, interviews, offers, and hiring stage progression.
+- **Performance:** goals, reviews, KPIs, feedback, and progress updates.
+- **Documents:** document library, metadata upload, categories, preview, and download.
+- **Reports & Analytics:** downloadable HR reports, employee distribution, and department headcount.
+- **Audit Logs:** searchable module activity history and CSV export.
+- **Settings:** general, security, roles/permissions, and system preferences.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Demo data and safety
 
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- Sample records use Sri Lankan names, departments, and LKR amounts to align with the supplied reference.
+- Changes are stored in browser `localStorage` only. No employee data is sent to a server.
+- Uploaded document metadata is stored locally; this prototype does not upload file contents.
+- Payroll is a visual preview and simulated run only; it does not transfer money or file taxes.
+- Small page, chart, hover, and success animations are included. The UI honors `prefers-reduced-motion`.
